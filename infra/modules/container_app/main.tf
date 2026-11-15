@@ -5,6 +5,10 @@ terraform {
       source  = "hashicorp/azurerm"
       version = "~> 5.0"
     }
+    azapi = {
+      source  = "Azure/azapi"
+      version = "~> 2.0"
+    }
     time = {
       source  = "hashicorp/time"
       version = "~> 0.12"
@@ -39,6 +43,20 @@ resource "azurerm_container_app_environment" "this" {
   }
 }
 
+# Desde 2026 Azure crea el ambiente en modo Express si la peticion no indica un modo, y azurerm
+# no expone environmentMode. Express no admite secretos referenciados a Key Vault
+# (ExpressKeyVaultSecretsNotSupported), asi que se pasa a WorkloadProfiles antes de crear la app.
+resource "azapi_resource_action" "workload_profiles_mode" {
+  type        = "Microsoft.App/managedEnvironments@2026-07-01"
+  resource_id = azurerm_container_app_environment.this.id
+  method      = "PATCH"
+  body = {
+    properties = {
+      environmentMode = "WorkloadProfiles"
+    }
+  }
+}
+
 # Identidad asignada por el usuario: existe, y tiene permisos, antes de crear la app.
 # Con una identidad del sistema la primera revision fallaria al leer los secretos.
 resource "azurerm_user_assigned_identity" "app" {
@@ -67,7 +85,7 @@ resource "azurerm_container_app" "this" {
   revision_mode                = "Single"
   workload_profile_name        = "Consumption"
   tags                         = var.tags
-  depends_on                   = [time_sleep.rbac_propagation]
+  depends_on                   = [time_sleep.rbac_propagation, azapi_resource_action.workload_profiles_mode]
 
   identity {
     type         = "UserAssigned"
