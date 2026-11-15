@@ -41,8 +41,14 @@ jobs:
       environment: dev
       image: ${{ needs.image.outputs.ref }}
 
-  # TODO (Parte 6): agregue aqui el job "prod".
-  #  - Debe ejecutarse solo si "image" y "dev" terminaron bien.
-  #  - Necesita los mismos permisos que el job "dev".
-  #  - Llama al mismo workflow reutilizable, con el ambiente prod.
-  #  - Debe recibir exactamente la misma imagen que dev: no vuelva a construirla.
+  prod:
+    # Solo corre si la imagen se resolvio y dev se desplego y paso la prueba de humo.
+    needs: [image, dev]
+    permissions:
+      contents: read
+      id-token: write # Igual que dev: pide el token OIDC que Azure intercambia por acceso.
+    uses: ./.github/workflows/deploy-env.yml
+    with:
+      environment: prod
+      # La misma referencia por digest que recibio dev: no se reconstruye la imagen.
+      image: ${{ needs.image.outputs.ref }}
