@@ -148,3 +148,22 @@ run "el_tope_de_replicas_protege_el_credito" {
 
   expect_failures = [var.max_replicas]
 }
+
+run "prod_puede_compartir_el_ambiente_de_container_apps" {
+  command = apply
+
+  variables {
+    environment                  = "prod"
+    max_replicas                 = 3
+    container_app_environment_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-ledger-dev/providers/Microsoft.App/managedEnvironments/cae-ledger-dev"
+  }
+
+  assert {
+    condition     = length(module.app.environment_resources) == 0
+    error_message = "Con un ambiente compartido no se crea otro ambiente ni su Log Analytics."
+  }
+  assert {
+    condition     = azurerm_resource_group.this.name == "rg-ledger-prod"
+    error_message = "prod conserva su propio grupo de recursos."
+  }
+}

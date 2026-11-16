@@ -57,3 +57,9 @@ variable "rbac_propagation_wait" {
   type        = string
   default     = "90s"
 }
+
+variable "container_app_environment_id" {
+  description = "Ambiente de Container Apps compartido. Azure for Students solo admite uno por suscripcion."
+  type        = string
+  default     = null
+}

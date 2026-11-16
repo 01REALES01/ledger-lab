@@ -44,6 +44,12 @@ variable "image" {
   type = string
 }
 
+variable "container_app_environment_id" {
+  description = "Vacio: el ambiente crea su propio entorno de Container Apps."
+  type        = string
+  default     = null
+}
+
 variable "use_free_offer" {
   type    = bool
   default = true
@@ -57,8 +63,10 @@ module "stack" {
   database_location = var.database_location
   image             = var.image
   use_free_offer    = var.use_free_offer
-  max_replicas      = 3
-  jwt_minutes       = 15
+
+  container_app_environment_id = var.container_app_environment_id
+  max_replicas                 = 3
+  jwt_minutes                  = 15
 }
 
 output "app_url" {

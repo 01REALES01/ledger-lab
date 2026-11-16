@@ -16,8 +16,16 @@ terraform {
   }
 }
 
+locals {
+  # Azure for Students admite un solo ambiente de Container Apps (no Express) por suscripcion.
+  # Si se recibe environment_id, la app se crea en ese ambiente y este modulo no crea uno propio.
+  create_environment = var.environment_id == null || var.environment_id == ""
+  environment_id     = local.create_environment ? azurerm_container_app_environment.this[0].id : var.environment_id
+}
+
 resource "azurerm_log_analytics_workspace" "this" {
-  count = var.logs_enabled ? 1 : 0
+  # Los logs se configuran en el ambiente: solo existen si este modulo lo crea.
+  count = var.logs_enabled && local.create_environment ? 1 : 0
 
   name                = "log-${var.name}"
   resource_group_name = var.resource_group_name
@@ -29,11 +37,13 @@ resource "azurerm_log_analytics_workspace" "this" {
 }
 
 resource "azurerm_container_app_environment" "this" {
+  count = local.create_environment ? 1 : 0
+
   name                       = "cae-${var.name}"
   resource_group_name        = var.resource_group_name
   location                   = var.location
-  logs_destination           = var.logs_enabled ? "log-analytics" : null
-  log_analytics_workspace_id = var.logs_enabled ? azurerm_log_analytics_workspace.this[0].id : null
+  logs_destination           = length(azurerm_log_analytics_workspace.this) > 0 ? "log-analytics" : null
+  log_analytics_workspace_id = length(azurerm_log_analytics_workspace.this) > 0 ? azurerm_log_analytics_workspace.this[0].id : null
   tags                       = var.tags
 
   # Azure lo agrega siempre; declararlo evita un cambio perpetuo en cada plan. No tiene cargo fijo.
@@ -47,8 +57,10 @@ resource "azurerm_container_app_environment" "this" {
 # no expone environmentMode. Express no admite secretos referenciados a Key Vault
 # (ExpressKeyVaultSecretsNotSupported), asi que se pasa a WorkloadProfiles antes de crear la app.
 resource "azapi_resource_action" "workload_profiles_mode" {
+  count = local.create_environment ? 1 : 0
+
   type        = "Microsoft.App/managedEnvironments@2026-07-01"
-  resource_id = azurerm_container_app_environment.this.id
+  resource_id = azurerm_container_app_environment.this[0].id
   method      = "PATCH"
   body = {
     properties = {
@@ -81,7 +93,7 @@ resource "time_sleep" "rbac_propagation" {
 resource "azurerm_container_app" "this" {
   name                         = "ca-${var.name}"
   resource_group_name          = var.resource_group_name
-  container_app_environment_id = azurerm_container_app_environment.this.id
+  container_app_environment_id = local.environment_id
   revision_mode                = "Single"
   workload_profile_name        = "Consumption"
   tags                         = var.tags

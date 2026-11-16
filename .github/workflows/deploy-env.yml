@@ -33,6 +33,8 @@ jobs:
       TF_IN_AUTOMATION: "true"
       TF_VAR_location: ${{ vars.AZURE_LOCATION }}
       TF_VAR_database_location: ${{ vars.AZURE_DB_LOCATION }}
+      # Solo se define en el Environment que comparte el ambiente de Container Apps (prod).
+      TF_VAR_container_app_environment_id: ${{ vars.CONTAINER_APP_ENVIRONMENT_ID }}
       TF_VAR_image: ${{ inputs.image }}
       ROOT: infra/environments/${{ inputs.environment }}
     steps:
