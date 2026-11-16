@@ -32,6 +32,8 @@ jobs:
       ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
       TF_VAR_location: ${{ vars.AZURE_LOCATION }}
       TF_VAR_database_location: ${{ vars.AZURE_DB_LOCATION }}
+      # Solo se define en el Environment que comparte el ambiente de Container Apps (prod).
+      TF_VAR_container_app_environment_id: ${{ vars.CONTAINER_APP_ENVIRONMENT_ID }}
       # Terraform exige un valor, pero eliminar no usa la imagen.
       TF_VAR_image: ghcr.io/none/none@sha256:0000000000000000000000000000000000000000000000000000000000000000
       ROOT: infra/environments/${{ inputs.environment }}
