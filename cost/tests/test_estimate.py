@@ -21,9 +21,15 @@ PRICES = {
     "blob_10k_writes": 0.05,
 }
 
+GLOBAL_PRICES = {
+    "private_endpoint_hour": 0.01,
+    "private_endpoint_gb_ingress": 0.01,
+    "private_endpoint_gb_egress": 0.01,
+}
+
 
 def book():
-    return cost.PriceBook({"eastus": PRICES}, offline=True)
+    return cost.PriceBook({"eastus": PRICES, "Global": GLOBAL_PRICES}, offline=True)
 
 
 def usage(**overrides):
@@ -53,6 +59,15 @@ def database(free=True, behavior="AutoPause"):
                 "useFreeLimit": free, "freeLimitExhaustionBehavior": behavior,
             }},
         },
+    }
+
+
+def private_endpoint(target="kv"):
+    return {
+        "address": f"module.stack.azurerm_private_endpoint.{target}",
+        "mode": "managed",
+        "type": "azurerm_private_endpoint",
+        "values": {"location": "eastus"},
     }
 
 
@@ -135,7 +150,7 @@ def run_cli(tmp_path, resources, *extra):
     path = tmp_path / "plan.json"
     path.write_text(json.dumps(plan(*resources)))
     snapshot = tmp_path / "prices.json"
-    snapshot.write_text(json.dumps({"eastus": PRICES}))
+    snapshot.write_text(json.dumps({"eastus": PRICES, "Global": GLOBAL_PRICES}))
     return cost.main([
         "--plan", f"dev={path}", "--snapshot", str(snapshot), "--offline", *extra,
     ])
@@ -153,3 +168,31 @@ def test_unknown_resource_fails_the_gate(tmp_path):
     vm = {"address": "azurerm_linux_virtual_machine.x", "mode": "managed",
           "type": "azurerm_linux_virtual_machine", "values": {}}
     assert run_cli(tmp_path, [vm]) == 1
+
+
+def test_private_endpoint_bills_every_hour_even_if_app_is_idle():
+    lines, unknown = cost.estimate(
+        {"dev": plan(private_endpoint())},
+        usage(app_active_hours_per_month={"dev": 0}), book(),
+    )
+    # 730 h x 0.01 + 1 GB x (0.01 de entrada + 0.01 de salida).
+    assert total(lines) == pytest.approx(730 * 0.01 + 1 * 0.02)
+    assert unknown == []
+
+
+def test_private_endpoint_uses_the_global_price_not_the_plan_region():
+    calls = []
+
+    def fetcher(key, region):
+        calls.append((key, region))
+        return 0.01
+
+    prices = cost.PriceBook({}, fetcher=fetcher)
+    cost.estimate({"dev": plan(private_endpoint())}, usage(), prices)
+    assert {region for _, region in calls} == {"Global"}
+
+
+def test_two_private_endpoints_exceed_the_dev_budget(tmp_path):
+    # Cerrar Key Vault y SQL a la red publica en dev pasaria de centavos a unos 15 USD al mes.
+    endpoints = [private_endpoint("kv"), private_endpoint("sql"), database()]
+    assert run_cli(tmp_path, endpoints, "--budget", "2") == 1
