@@ -65,7 +65,31 @@ METERS = {
         "Hot LRS Write Operations",
         "10K",
     ),
+    # Private Link no tiene precio por region: la API lo publica con armRegionName 'Global'.
+    "private_endpoint_hour": (
+        "serviceName eq 'Virtual Network' and productName eq 'Virtual Network Private Link' "
+        "and skuName eq 'Standard'",
+        "Standard Private Endpoint",
+        "1 Hour",
+    ),
+    "private_endpoint_gb_ingress": (
+        "serviceName eq 'Virtual Network' and productName eq 'Virtual Network Private Link' "
+        "and skuName eq 'Standard'",
+        "Standard Data Processed - Ingress",
+        "1 GB",
+    ),
+    "private_endpoint_gb_egress": (
+        "serviceName eq 'Virtual Network' and productName eq 'Virtual Network Private Link' "
+        "and skuName eq 'Standard'",
+        "Standard Data Processed - Egress",
+        "1 GB",
+    ),
 }
+
+# Medidores con un solo precio mundial: se consultan en esta region, no en la del plan.
+GLOBAL_REGION = "Global"
+GLOBAL_METERS = {"private_endpoint_hour", "private_endpoint_gb_ingress", "private_endpoint_gb_egress"}
+HOURS_PER_MONTH = 730
 
 # Recursos sin cargo propio: su costo aparece, si lo hay, en los recursos que los usan.
 FREE_RESOURCES = {
@@ -116,6 +140,8 @@ class PriceBook:
         self.used_snapshot = False
 
     def price(self, key: str, region: str) -> float:
+        if key in GLOBAL_METERS:
+            region = GLOBAL_REGION
         if (key, region) in self.cache:
             return self.cache[(key, region)]
         value = None
@@ -193,6 +219,8 @@ def estimate_plan(name: str, plan: dict, usage: dict, book: PriceBook, grant: di
             storage = usage["state_storage_gb"] * book.price("blob_gb_month", region)
             writes = usage["state_writes_per_month"] / 10_000 * book.price("blob_10k_writes", region)
             lines.append(Line(name, address, storage + writes, f"{usage['state_storage_gb']} GB"))
+        elif kind == "azurerm_private_endpoint":
+            lines.append(_private_endpoint(name, address, usage, region, book))
         else:
             unknown.append(address)
     return lines, unknown
@@ -217,6 +245,17 @@ def _container_app(env, address, values, usage, region, book, grant) -> Line:
         + consume("requests", requests) / 1e6 * book.price("aca_million_requests", region)
     )
     return Line(env, address, cost, f"{seconds / 3600:.0f} h activas, {requests:,} solicitudes")
+
+
+def _private_endpoint(env, address, usage, region, book) -> Line:
+    # Cobra cada hora que existe, aunque la app este en cero: no escala a cero como Container Apps.
+    hourly = HOURS_PER_MONTH * book.price("private_endpoint_hour", region)
+    gb = usage["private_endpoint_gb_per_month"]
+    traffic = gb * (
+        book.price("private_endpoint_gb_ingress", region)
+        + book.price("private_endpoint_gb_egress", region)
+    )
+    return Line(env, address, hourly + traffic, f"{HOURS_PER_MONTH} h fijas, {gb} GB procesados")
 
 
 def _azapi_database(env, address, values, usage, region, book) -> Line:
@@ -261,7 +300,10 @@ def render(lines: list[Line], unknown: list[str], budget: float | None) -> str:
 
 def refresh_snapshot(path: Path, region: str) -> None:
     snapshot = json.loads(path.read_text()) if path.exists() else {}
-    snapshot[region] = {key: fetch_live_price(key, region) for key in METERS}
+    snapshot[region] = {
+        key: fetch_live_price(key, region) for key in METERS if key not in GLOBAL_METERS
+    }
+    snapshot[GLOBAL_REGION] = {key: fetch_live_price(key, GLOBAL_REGION) for key in GLOBAL_METERS}
     path.write_text(json.dumps(snapshot, indent=2, sort_keys=True) + "\n")
 
 
